@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">Pulse Deck logo banner</title>
+  <desc id="desc">Pulse Deck with subtitle System Info for Stream Deck</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1423"/>
+      <stop offset="55%" stop-color="#182742"/>
+      <stop offset="100%" stop-color="#0f1d33"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4CC8E8"/>
+      <stop offset="100%" stop-color="#57A8FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="320" rx="28" fill="url(#bg)"/>
+  <rect x="40" y="40" width="1120" height="240" rx="20" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="2"/>
+
+  <path d="M92 242 L170 242 L170 198 L242 198 L242 126 L314 126" fill="none" stroke="url(#accent)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="92" cy="242" r="8" fill="#4CC8E8"/>
+  <circle cx="170" cy="198" r="8" fill="#4CC8E8"/>
+  <circle cx="242" cy="126" r="8" fill="#4CC8E8"/>
+  <circle cx="314" cy="126" r="8" fill="#4CC8E8"/>
+
+  <text x="360" y="152" fill="#F4F8FF" font-family="Avenir Next, Montserrat, Segoe UI, Helvetica, Arial, sans-serif" font-size="84" font-weight="800" letter-spacing="1">Pulse Deck</text>
+  <text x="362" y="210" fill="#9DB7DA" font-family="Avenir Next, Segoe UI, Helvetica, Arial, sans-serif" font-size="32" font-weight="500">System Info for Stream Deck</text>
+</svg>

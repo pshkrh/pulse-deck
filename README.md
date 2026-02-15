@@ -1,4 +1,8 @@
-# Pulse Deck (System Info)
+# Pulse Deck: System Info
+
+<p align="center">
+  <img src="docs/media/pulse-deck-logo.svg" alt="Pulse Deck logo" width="900" />
+</p>
 
 [![CI](https://github.com/pshkrh/pulse-deck/actions/workflows/ci.yml/badge.svg)](https://github.com/pshkrh/pulse-deck/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/pshkrh/pulse-deck?sort=semver)](https://github.com/pshkrh/pulse-deck/releases)
