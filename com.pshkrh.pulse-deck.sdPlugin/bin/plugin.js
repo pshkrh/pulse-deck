@@ -57,6 +57,7 @@ const contextsByMetric = new Map([
   [METRIC_BATTERY, new Set()],
   [METRIC_UPTIME, new Set()],
 ]);
+const lastImageByContext = new Map();
 let pollTimer = null;
 
 function normalizePingIntervalSeconds(value) {
@@ -102,20 +103,39 @@ function renderMetric(metric) {
   }
 
   for (const context of metricContexts) {
+    if (lastImageByContext.get(context) === imageDataUrl) {
+      continue;
+    }
+
     client.setImage(context, imageDataUrl);
-    client.setTitle(context, "");
+    lastImageByContext.set(context, imageDataUrl);
   }
 }
 
+function getActiveMetrics() {
+  const activeMetrics = [];
+  for (const [metric, metricContexts] of contextsByMetric.entries()) {
+    if (metricContexts.size > 0) {
+      activeMetrics.push(metric);
+    }
+  }
+  return activeMetrics;
+}
+
 function refreshAndRenderAll() {
+  const activeMetrics = getActiveMetrics();
+  if (activeMetrics.length === 0) {
+    return;
+  }
+
   try {
-    sampler.sample();
+    sampler.sample(activeMetrics);
   } catch (error) {
     client.logMessage(`Failed to sample system metrics: ${error.message}`);
     return;
   }
 
-  for (const metric of sampler.getMetrics()) {
+  for (const metric of activeMetrics) {
     renderMetric(metric);
   }
 }
@@ -163,6 +183,7 @@ function handleWillDisappear(event) {
 
   contextsByMetric.get(metric)?.delete(event.context);
   contexts.delete(event.context);
+  lastImageByContext.delete(event.context);
   stopPollingIfIdle();
 }
 

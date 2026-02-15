@@ -286,6 +286,21 @@ function normalizePingRefreshMs(value, fallbackMs = DEFAULT_PING_REFRESH_MS) {
   return Math.max(MIN_PING_REFRESH_MS, Math.min(MAX_PING_REFRESH_MS, rounded));
 }
 
+function normalizeRequestedMetrics(requestedMetrics) {
+  if (!Array.isArray(requestedMetrics) || requestedMetrics.length === 0) {
+    return new Set(ALL_METRICS);
+  }
+
+  const metricSet = new Set();
+  for (const metric of requestedMetrics) {
+    if (ALL_METRICS.includes(metric)) {
+      metricSet.add(metric);
+    }
+  }
+
+  return metricSet.size > 0 ? metricSet : new Set(ALL_METRICS);
+}
+
 function createMetricSampler(options = {}) {
   const historySize = Number.isInteger(options.historySize) && options.historySize > 0
     ? options.historySize
@@ -345,35 +360,46 @@ function createMetricSampler(options = {}) {
   }
 
   return {
-    sample() {
+    sample(requestedMetrics) {
+      const activeMetrics = normalizeRequestedMetrics(requestedMetrics);
       const currentTime = now();
       const currentCpuSnapshot = readCpuSnapshot();
-      const currentMemorySnapshot = readMemoryUsage();
 
-      const cpuPercent = roundToTenths(computeCpuUsage(previousCpuSnapshot, currentCpuSnapshot));
-      const memoryPercent = roundToTenths(computeMemoryUsage(currentMemorySnapshot));
-      const pingMs = roundToTenths(
-        sampleCachedMetric(currentTime, pingState, pingRefreshMs, readPingLatency, clampNonNegative)
-      );
-      const batteryPercent = roundToTenths(
-        sampleCachedMetric(currentTime, batteryState, batteryRefreshMs, readBatteryPercent, clampPercent)
-      );
-      const uptimeHours = roundToTenths(clampNonNegative(readUptimeHours()));
-
+      if (activeMetrics.has(METRIC_CPU)) {
+        const cpuPercent = roundToTenths(computeCpuUsage(previousCpuSnapshot, currentCpuSnapshot));
+        latest[METRIC_CPU] = cpuPercent;
+        appendHistory(historyByMetric[METRIC_CPU], cpuPercent, historySize);
+      }
+      // Keep snapshots fresh to avoid CPU spikes when CPU metric is re-enabled.
       previousCpuSnapshot = currentCpuSnapshot;
-      latest = {
-        [METRIC_CPU]: cpuPercent,
-        [METRIC_MEMORY]: memoryPercent,
-        [METRIC_PING]: pingMs,
-        [METRIC_BATTERY]: batteryPercent,
-        [METRIC_UPTIME]: uptimeHours,
-      };
 
-      appendHistory(historyByMetric[METRIC_CPU], cpuPercent, historySize);
-      appendHistory(historyByMetric[METRIC_MEMORY], memoryPercent, historySize);
-      appendHistory(historyByMetric[METRIC_PING], pingMs, historySize);
-      appendHistory(historyByMetric[METRIC_BATTERY], batteryPercent, historySize);
-      appendHistory(historyByMetric[METRIC_UPTIME], uptimeHours, historySize);
+      if (activeMetrics.has(METRIC_MEMORY)) {
+        const memoryPercent = roundToTenths(computeMemoryUsage(readMemoryUsage()));
+        latest[METRIC_MEMORY] = memoryPercent;
+        appendHistory(historyByMetric[METRIC_MEMORY], memoryPercent, historySize);
+      }
+
+      if (activeMetrics.has(METRIC_PING)) {
+        const pingMs = roundToTenths(
+          sampleCachedMetric(currentTime, pingState, pingRefreshMs, readPingLatency, clampNonNegative)
+        );
+        latest[METRIC_PING] = pingMs;
+        appendHistory(historyByMetric[METRIC_PING], pingMs, historySize);
+      }
+
+      if (activeMetrics.has(METRIC_BATTERY)) {
+        const batteryPercent = roundToTenths(
+          sampleCachedMetric(currentTime, batteryState, batteryRefreshMs, readBatteryPercent, clampPercent)
+        );
+        latest[METRIC_BATTERY] = batteryPercent;
+        appendHistory(historyByMetric[METRIC_BATTERY], batteryPercent, historySize);
+      }
+
+      if (activeMetrics.has(METRIC_UPTIME)) {
+        const uptimeHours = roundToTenths(clampNonNegative(readUptimeHours()));
+        latest[METRIC_UPTIME] = uptimeHours;
+        appendHistory(historyByMetric[METRIC_UPTIME], uptimeHours, historySize);
+      }
 
       return {
         ...latest,

@@ -191,11 +191,66 @@ function testPingRefreshConfiguration() {
   assert.equal(fourth.ping, 60);
 }
 
+function testSelectiveMetricSampling() {
+  let memoryReads = 0;
+  let pingReads = 0;
+  let batteryReads = 0;
+  let uptimeReads = 0;
+
+  const readCpuSnapshot = createIteratorReader([
+    { user: 0, system: 0, nice: 0, idle: 0 },
+    { user: 10, system: 5, nice: 0, idle: 15 },
+    { user: 20, system: 10, nice: 0, idle: 30 },
+  ]);
+  const readMemoryUsage = () => {
+    memoryReads += 1;
+    return { total: 1000, free: 250 };
+  };
+  const readPingLatency = () => {
+    pingReads += 1;
+    return 10;
+  };
+  const readBatteryPercent = () => {
+    batteryReads += 1;
+    return 80;
+  };
+  const readUptimeHours = () => {
+    uptimeReads += 1;
+    return 2;
+  };
+  const now = createIteratorReader([0, 1000]);
+
+  const sampler = createMetricSampler({
+    historySize: 4,
+    readCpuSnapshot,
+    readMemoryUsage,
+    readPingLatency,
+    readBatteryPercent,
+    readUptimeHours,
+    pingRefreshMs: 0,
+    batteryRefreshMs: 0,
+    now,
+  });
+
+  sampler.sample([METRIC_CPU]);
+  assert.equal(memoryReads, 0);
+  assert.equal(pingReads, 0);
+  assert.equal(batteryReads, 0);
+  assert.equal(uptimeReads, 0);
+
+  sampler.sample([METRIC_MEMORY, METRIC_UPTIME]);
+  assert.equal(memoryReads, 1);
+  assert.equal(pingReads, 0);
+  assert.equal(batteryReads, 0);
+  assert.equal(uptimeReads, 1);
+}
+
 function run() {
   testUsageComputations();
   testParserHelpers();
   testSamplerHistoryAndMetrics();
   testPingRefreshConfiguration();
+  testSelectiveMetricSampling();
   console.log("metrics tests passed");
 }
 
