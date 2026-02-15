@@ -1,5 +1,6 @@
 # Pulse Deck (System Info)
 
+[![CI](https://github.com/pshkrh/pulse-deck/actions/workflows/ci.yml/badge.svg)](https://github.com/pshkrh/pulse-deck/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/pshkrh/pulse-deck?sort=semver)](https://github.com/pshkrh/pulse-deck/releases)
 [![License](https://img.shields.io/github/license/pshkrh/pulse-deck)](./LICENSE)
 
