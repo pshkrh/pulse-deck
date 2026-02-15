@@ -1,0 +1,7 @@
+{
+  "name": "com.pshkrh.pulse-deck.sdplugin",
+  "private": true,
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

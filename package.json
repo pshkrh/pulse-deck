@@ -1,0 +1,13 @@
+{
+  "name": "pulse-deck-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pulse Deck System Info plugin for macOS",
+  "scripts": {
+    "test": "node tests/manifest.test.js && node tests/metrics.test.js",
+    "icons": "python3 scripts/generate_icons.py",
+    "prepare": "npm --prefix com.pshkrh.pulse-deck.sdPlugin install",
+    "install:local": "./scripts/install-pulse-deck.sh",
+    "package:plugin": "./scripts/package-plugin.sh"
+  }
+}

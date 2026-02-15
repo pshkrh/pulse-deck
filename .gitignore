@@ -1,0 +1,13 @@
+.DS_Store
+dist/
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.streamDeckPlugin
+.vscode/
+.idea/
+
+com.pshkrh.pulse-deck.sdPlugin/node_modules/
+com.pshkrh.pulse-deck.sdPlugin/imgs/runtime-cache/
