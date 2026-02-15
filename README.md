@@ -6,6 +6,9 @@
 
 Pulse Deck is a lightweight Stream Deck plugin for live macOS system info telemetry.
 
+## Demo
+![Pulse Deck demo](docs/media/pulse-deck-demo.gif)
+
 ## Metrics
 - CPU usage (%)
 - Memory usage (%)
