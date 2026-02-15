@@ -1,5 +1,8 @@
 # Pulse Deck (System Info)
 
+[![Version](https://img.shields.io/badge/version-1.0.0-2ea44f)](./com.pshkrh.pulse-deck.sdPlugin/manifest.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 Pulse Deck is a lightweight Stream Deck plugin for live macOS system info telemetry.
 
 ## Metrics

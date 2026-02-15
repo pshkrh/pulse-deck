@@ -2,6 +2,7 @@
   "name": "pulse-deck-plugin",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Pulse Deck System Info plugin for macOS",
   "scripts": {
     "test": "node tests/manifest.test.js && node tests/metrics.test.js",
