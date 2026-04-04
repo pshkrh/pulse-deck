@@ -7,10 +7,13 @@ const childProcess = require("node:child_process");
 
 const TRANSPARENT_PNG_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sJd7s8AAAAASUVORK5CYII=";
+const DEFAULT_RENDER_TIMEOUT_MS = 1500;
+const COMMAND_OUTPUT_MAX_BUFFER = 512 * 1024;
 
 const PERCENT_METRICS = new Set(["cpu", "memory", "battery"]);
 const NON_PERCENT_METRICS = new Set(["ping", "uptime"]);
-const KNOWN_METRICS = new Set([...PERCENT_METRICS, ...NON_PERCENT_METRICS]);
+const TEMP_METRICS = new Set(["cpu_temp"]);
+const KNOWN_METRICS = new Set([...PERCENT_METRICS, ...NON_PERCENT_METRICS, ...TEMP_METRICS]);
 
 function ensureDirectory(directoryPath) {
   fs.mkdirSync(directoryPath, { recursive: true });
@@ -41,6 +44,10 @@ function normalizeValue(metric, value) {
 
   if (PERCENT_METRICS.has(metric)) {
     return Math.max(0, Math.min(100, roundToTenths(numericValue)));
+  }
+
+  if (TEMP_METRICS.has(metric)) {
+    return Math.max(0, Math.min(120, roundToTenths(numericValue)));
   }
 
   if (NON_PERCENT_METRICS.has(metric)) {
@@ -86,12 +93,36 @@ function pruneCache(cacheMap, filePathByKey, maxEntries) {
   }
 }
 
+function formatRendererError(error) {
+  const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+  if (stderr.length > 0) {
+    return stderr.split("\n")[0];
+  }
+
+  if (typeof error?.status === "number") {
+    return `renderer exited with code ${error.status}`;
+  }
+
+  if (typeof error?.signal === "string" && error.signal.length > 0) {
+    return `renderer terminated by signal ${error.signal}`;
+  }
+
+  if (typeof error?.message === "string" && error.message.length > 0) {
+    return error.message.split("\n")[0];
+  }
+
+  return "renderer execution failed";
+}
+
 function createVitalRenderer(options = {}) {
   const cacheDirectory = options.cacheDirectory;
   const rendererScriptPath = options.rendererScriptPath;
   const maxMemoryCacheEntries = Number.isInteger(options.maxMemoryCacheEntries) && options.maxMemoryCacheEntries > 0
     ? options.maxMemoryCacheEntries
     : 300;
+  const renderTimeoutMs = Number.isInteger(options.renderTimeoutMs) && options.renderTimeoutMs > 0
+    ? options.renderTimeoutMs
+    : DEFAULT_RENDER_TIMEOUT_MS;
 
   if (!cacheDirectory) {
     throw new Error("cacheDirectory is required");
@@ -122,13 +153,21 @@ function createVitalRenderer(options = {}) {
       const outputPath = path.join(cacheDirectory, `${cacheKey}.png`);
 
       if (!fs.existsSync(outputPath)) {
-        childProcess.execFileSync(
-          "python3",
-          [rendererScriptPath, safeMetric, safeValue.toFixed(1), historyPayload, outputPath],
-          {
-            stdio: "ignore",
-          }
-        );
+        try {
+          childProcess.execFileSync(
+            "python3",
+            [rendererScriptPath, safeMetric, safeValue.toFixed(1), historyPayload, outputPath],
+            {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: renderTimeoutMs,
+              maxBuffer: COMMAND_OUTPUT_MAX_BUFFER,
+            }
+          );
+        } catch (error) {
+          removeFileIfExists(outputPath);
+          throw new Error(formatRendererError(error));
+        }
       }
 
       let dataUrl = TRANSPARENT_PNG_DATA_URL;

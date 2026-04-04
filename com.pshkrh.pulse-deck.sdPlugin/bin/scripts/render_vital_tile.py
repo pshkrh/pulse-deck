@@ -22,6 +22,12 @@ THEMES = {
         "accent_soft": (255, 165, 120),
         "mode": "percent",
     },
+    "cpu_temp": {
+        "label": "CPU",
+        "accent": (255, 102, 87),
+        "accent_soft": (255, 165, 120),
+        "mode": "temp",
+    },
     "memory": {
         "label": "RAM",
         "accent": (92, 177, 255),
@@ -75,7 +81,9 @@ def save_png_atomic(image: Image.Image, output_path: Path) -> None:
                 pass
 
 
-def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def load_font(
+    size: int, bold: bool = False
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     choices: list[str] = []
     if bold:
         choices.extend(
@@ -109,6 +117,13 @@ def clamp_value(value: float, mode: str) -> float:
             return 100.0
         return value
 
+    if mode == "temp":
+        if value < 0:
+            return 0.0
+        if value > 120:
+            return 120.0
+        return value
+
     if value < 0:
         return 0.0
     return value
@@ -127,7 +142,9 @@ def parse_history(raw: str, mode: str) -> list[float]:
     return values
 
 
-def draw_background(image: Image.Image, accent: tuple[int, int, int], soft: tuple[int, int, int]) -> None:
+def draw_background(
+    image: Image.Image, accent: tuple[int, int, int], soft: tuple[int, int, int]
+) -> None:
     draw = ImageDraw.Draw(image)
 
     for y in range(KEY_SIZE):
@@ -249,10 +266,35 @@ def draw_labels(
         base_x = PADDING
         base_y = 20
 
-        draw.text((base_x, base_y), value_text, font=value_font, fill=(255, 255, 255, 255))
+        draw.text(
+            (base_x, base_y), value_text, font=value_font, fill=(255, 255, 255, 255)
+        )
         draw.text(
             (base_x + value_width + 2, base_y + value_height - 26),
             "%",
+            font=unit_font,
+            fill=(accent[0], accent[1], accent[2], 255),
+        )
+        return
+
+    if mode == "temp":
+        value_font = load_font(50, bold=True)
+        unit_font = load_font(22, bold=True)
+
+        value_text = f"{int(round(value))}"
+        value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
+        value_width = value_bbox[2] - value_bbox[0]
+        value_height = value_bbox[3] - value_bbox[1]
+
+        base_x = PADDING
+        base_y = 20
+
+        draw.text(
+            (base_x, base_y), value_text, font=value_font, fill=(255, 255, 255, 255)
+        )
+        draw.text(
+            (base_x + value_width + 2, base_y + value_height - 26),
+            "°C",
             font=unit_font,
             fill=(accent[0], accent[1], accent[2], 255),
         )
@@ -267,7 +309,12 @@ def draw_labels(
     unit_font = load_font(15, bold=True)
 
     draw.text((PADDING, 24), value_text, font=value_font, fill=(255, 255, 255, 255))
-    draw.text((PADDING, 54), unit_text, font=unit_font, fill=(accent[0], accent[1], accent[2], 255))
+    draw.text(
+        (PADDING, 54),
+        unit_text,
+        font=unit_font,
+        fill=(accent[0], accent[1], accent[2], 255),
+    )
 
 
 def draw_progress_bar(
@@ -309,12 +356,22 @@ def resolve_scale_max(mode: str, values: list[float], current_value: float) -> f
     if mode == "percent":
         return 100.0
 
+    if mode == "temp":
+        highest_value = (
+            max(values + [current_value, 60.0]) if values else max(current_value, 60.0)
+        )
+        return max(60.0, highest_value)
+
     if mode == "latency":
-        highest_value = max(values + [current_value, 20.0]) if values else max(current_value, 20.0)
+        highest_value = (
+            max(values + [current_value, 20.0]) if values else max(current_value, 20.0)
+        )
         return max(20.0, highest_value)
 
     if mode == "uptime":
-        highest_value = max(values + [current_value, 24.0]) if values else max(current_value, 24.0)
+        highest_value = (
+            max(values + [current_value, 24.0]) if values else max(current_value, 24.0)
+        )
         return max(24.0, highest_value)
 
     return max(1.0, current_value)

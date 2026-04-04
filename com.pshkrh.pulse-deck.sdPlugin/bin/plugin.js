@@ -6,6 +6,7 @@ const path = require("node:path");
 const { createStreamDeckClient } = require("./lib/runtime/streamdeck-client");
 const {
   METRIC_CPU,
+  METRIC_CPU_TEMP,
   METRIC_MEMORY,
   METRIC_PING,
   METRIC_BATTERY,
@@ -18,12 +19,14 @@ const {
 const { createVitalRenderer } = require("./lib/render/icon-renderer");
 
 const ACTION_CPU = "com.pshkrh.pulse-deck.cpu";
+const ACTION_CPU_TEMP = "com.pshkrh.pulse-deck.cpu_temp";
 const ACTION_MEMORY = "com.pshkrh.pulse-deck.memory";
 const ACTION_PING = "com.pshkrh.pulse-deck.ping";
 const ACTION_BATTERY = "com.pshkrh.pulse-deck.battery";
 const ACTION_UPTIME = "com.pshkrh.pulse-deck.uptime";
 const ACTION_TO_METRIC = new Map([
   [ACTION_CPU, METRIC_CPU],
+  [ACTION_CPU_TEMP, METRIC_CPU_TEMP],
   [ACTION_MEMORY, METRIC_MEMORY],
   [ACTION_PING, METRIC_PING],
   [ACTION_BATTERY, METRIC_BATTERY],
@@ -52,13 +55,17 @@ const renderer = createVitalRenderer({
 const contexts = new Map();
 const contextsByMetric = new Map([
   [METRIC_CPU, new Set()],
+  [METRIC_CPU_TEMP, new Set()],
   [METRIC_MEMORY, new Set()],
   [METRIC_PING, new Set()],
   [METRIC_BATTERY, new Set()],
   [METRIC_UPTIME, new Set()],
 ]);
 const lastImageByContext = new Map();
+const cpuToggleState = new Map();
 let pollTimer = null;
+let refreshInProgress = false;
+let refreshPending = false;
 
 function normalizePingIntervalSeconds(value) {
   const numericValue = Number(value);
@@ -94,12 +101,16 @@ function renderMetric(metric) {
 
   const value = sampler.getLatest(metric);
   const history = sampler.getHistory(metric);
-
-  let imageDataUrl = renderer.transparentImage;
+  let imageDataUrl = null;
   try {
     imageDataUrl = renderer.renderTile(metric, value, history);
   } catch (error) {
     client.logMessage(`Failed to render ${metric} tile: ${error.message}`);
+    return;
+  }
+
+  if (!imageDataUrl) {
+    return;
   }
 
   for (const context of metricContexts) {
@@ -122,7 +133,7 @@ function getActiveMetrics() {
   return activeMetrics;
 }
 
-function refreshAndRenderAll() {
+function runRefreshCycle() {
   const activeMetrics = getActiveMetrics();
   if (activeMetrics.length === 0) {
     return;
@@ -137,6 +148,25 @@ function refreshAndRenderAll() {
 
   for (const metric of activeMetrics) {
     renderMetric(metric);
+  }
+}
+
+function refreshAndRenderAll() {
+  if (refreshInProgress) {
+    refreshPending = true;
+    return;
+  }
+
+  refreshInProgress = true;
+  try {
+    runRefreshCycle();
+  } finally {
+    refreshInProgress = false;
+  }
+
+  if (refreshPending) {
+    refreshPending = false;
+    refreshAndRenderAll();
   }
 }
 
@@ -168,9 +198,18 @@ function handleWillAppear(event) {
   contextsByMetric.get(metric)?.add(event.context);
   if (metric === METRIC_PING) {
     applyPingSettings(event.payload?.settings);
+  } else if (metric === METRIC_CPU && !cpuToggleState.has(event.context)) {
+    cpuToggleState.set(event.context, false);
   }
 
   client.setTitle(event.context, "");
+  if (sampler.getHistory(metric).length === 0) {
+    try {
+      sampler.sample([metric]);
+    } catch (error) {
+      client.logMessage(`Failed to prime ${metric} metric: ${error.message}`);
+    }
+  }
   startPollingIfNeeded();
   renderMetric(metric);
 }
@@ -184,12 +223,37 @@ function handleWillDisappear(event) {
   contextsByMetric.get(metric)?.delete(event.context);
   contexts.delete(event.context);
   lastImageByContext.delete(event.context);
+  cpuToggleState.delete(event.context);
   stopPollingIfIdle();
 }
 
 function handleKeyDown(event) {
   if (!contexts.has(event.context)) {
     return;
+  }
+
+  const currentMetric = contexts.get(event.context);
+  
+  if (currentMetric === METRIC_CPU) {
+    const isTemp = cpuToggleState.get(event.context) || false;
+    if (!isTemp) {
+      cpuToggleState.set(event.context, true);
+      contextsByMetric.get(METRIC_CPU)?.delete(event.context);
+      contextsByMetric.get(METRIC_CPU_TEMP)?.add(event.context);
+      contexts.set(event.context, METRIC_CPU_TEMP);
+      refreshAndRenderAll();
+      return;
+    }
+  } else if (currentMetric === METRIC_CPU_TEMP) {
+    const isTemp = cpuToggleState.get(event.context) || false;
+    if (isTemp) {
+      cpuToggleState.set(event.context, false);
+      contextsByMetric.get(METRIC_CPU_TEMP)?.delete(event.context);
+      contextsByMetric.get(METRIC_CPU)?.add(event.context);
+      contexts.set(event.context, METRIC_CPU);
+      refreshAndRenderAll();
+      return;
+    }
   }
 
   refreshAndRenderAll();

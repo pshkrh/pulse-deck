@@ -2,20 +2,29 @@
 
 const childProcess = require("node:child_process");
 const os = require("node:os");
+const path = require("node:path");
 
 const METRIC_CPU = "cpu";
+const METRIC_CPU_TEMP = "cpu_temp";
 const METRIC_MEMORY = "memory";
 const METRIC_PING = "ping";
 const METRIC_BATTERY = "battery";
 const METRIC_UPTIME = "uptime";
 
-const ALL_METRICS = [METRIC_CPU, METRIC_MEMORY, METRIC_PING, METRIC_BATTERY, METRIC_UPTIME];
+const ALL_METRICS = [METRIC_CPU, METRIC_CPU_TEMP, METRIC_MEMORY, METRIC_PING, METRIC_BATTERY, METRIC_UPTIME];
 
 const DEFAULT_HISTORY_SIZE = 30;
 const DEFAULT_BATTERY_REFRESH_MS = 15_000;
 const DEFAULT_PING_REFRESH_MS = 30_000;
 const MIN_PING_REFRESH_MS = 5_000;
 const MAX_PING_REFRESH_MS = 300_000;
+const COMMAND_OUTPUT_MAX_BUFFER = 1024 * 1024;
+const VM_STAT_TIMEOUT_MS = 700;
+const PMSET_TIMEOUT_MS = 700;
+const CPU_TEMP_SCRIPT_PATH = path.join(__dirname, "..", "..", "scripts", "cpu_temp.swift");
+const CPU_TEMP_TIMEOUT_MS = 1000;
+const PING_HOST_TIMEOUT_MS = 900;
+const PING_TOTAL_TIMEOUT_MS = 1400;
 
 function clampPercent(value) {
   if (!Number.isFinite(value)) {
@@ -33,6 +42,15 @@ function clampNonNegative(value) {
 
 function roundToTenths(value) {
   return Math.round(value * 10) / 10;
+}
+
+function execFileUtf8(command, args, timeoutMs) {
+  return childProcess.execFileSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: timeoutMs,
+    maxBuffer: COMMAND_OUTPUT_MAX_BUFFER,
+  });
 }
 
 function captureCpuSnapshotFromOs() {
@@ -134,10 +152,7 @@ function readMemoryUsageFromOs() {
   const total = os.totalmem();
 
   try {
-    const vmStatRaw = childProcess.execFileSync("vm_stat", [], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const vmStatRaw = execFileUtf8("vm_stat", [], VM_STAT_TIMEOUT_MS);
 
     const parsedVmStat = parseVmStatOutput(vmStatRaw);
     const vmStatPercent = computeUsedPercentFromVmStat(parsedVmStat, total);
@@ -177,10 +192,7 @@ function parsePmsetBatteryPercent(output) {
 
 function readBatteryPercentFromOs() {
   try {
-    const output = childProcess.execFileSync("pmset", ["-g", "batt"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const output = execFileUtf8("pmset", ["-g", "batt"], PMSET_TIMEOUT_MS);
     return parsePmsetBatteryPercent(output);
   } catch {
     return null;
@@ -209,16 +221,13 @@ function parsePingLatencyMs(output) {
   return null;
 }
 
-function readPingLatencyMs(host) {
+function readPingLatencyMs(host, timeoutMs = PING_HOST_TIMEOUT_MS) {
   if (!host) {
     return null;
   }
 
   try {
-    const output = childProcess.execFileSync("ping", ["-c", "1", "-n", "-q", host], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const output = execFileUtf8("ping", ["-c", "1", "-n", "-q", host], timeoutMs);
     return parsePingLatencyMs(output);
   } catch {
     return null;
@@ -226,8 +235,16 @@ function readPingLatencyMs(host) {
 }
 
 function readPingLatencyWithFallback() {
+  const startedAt = Date.now();
   for (const host of ["1.1.1.1", "8.8.8.8"]) {
-    const latency = readPingLatencyMs(host);
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = PING_TOTAL_TIMEOUT_MS - elapsedMs;
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    const timeoutMs = Math.max(250, Math.min(PING_HOST_TIMEOUT_MS, remainingMs));
+    const latency = readPingLatencyMs(host, timeoutMs);
     if (Number.isFinite(latency)) {
       return latency;
     }
@@ -255,6 +272,19 @@ function computeCpuUsage(previous, current) {
   return clampPercent(((systemDelta + userDelta) / totalTicks) * 100);
 }
 
+function readCpuTempFromOs() {
+  try {
+    const output = execFileUtf8("swift", [CPU_TEMP_SCRIPT_PATH], CPU_TEMP_TIMEOUT_MS);
+    const value = Number(output.trim());
+    if (Number.isFinite(value) && value > 0) {
+      return clampNonNegative(value);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function computeMemoryUsage(memorySnapshot) {
   const total = Number(memorySnapshot?.total) || 0;
   const free = Number(memorySnapshot?.free) || 0;
@@ -267,6 +297,10 @@ function computeMemoryUsage(memorySnapshot) {
 }
 
 function appendHistory(history, value, maxSize) {
+  if (history.length > 0 && Math.abs(history[history.length - 1] - value) < 0.05) {
+    return;
+  }
+
   history.push(value);
   if (history.length > maxSize) {
     history.splice(0, history.length - maxSize);
@@ -321,6 +355,7 @@ function createMetricSampler(options = {}) {
 
   const historyByMetric = {
     [METRIC_CPU]: [],
+    [METRIC_CPU_TEMP]: [],
     [METRIC_MEMORY]: [],
     [METRIC_PING]: [],
     [METRIC_BATTERY]: [],
@@ -341,6 +376,7 @@ function createMetricSampler(options = {}) {
 
   let latest = {
     [METRIC_CPU]: 0,
+    [METRIC_CPU_TEMP]: 0,
     [METRIC_MEMORY]: 0,
     [METRIC_PING]: 0,
     [METRIC_BATTERY]: 0,
@@ -370,7 +406,13 @@ function createMetricSampler(options = {}) {
         latest[METRIC_CPU] = cpuPercent;
         appendHistory(historyByMetric[METRIC_CPU], cpuPercent, historySize);
       }
-      // Keep snapshots fresh to avoid CPU spikes when CPU metric is re-enabled.
+      
+      if (activeMetrics.has(METRIC_CPU_TEMP)) {
+        const cpuTemp = roundToTenths(readCpuTempFromOs() || 0);
+        latest[METRIC_CPU_TEMP] = cpuTemp;
+        appendHistory(historyByMetric[METRIC_CPU_TEMP], cpuTemp, historySize);
+      }
+      
       previousCpuSnapshot = currentCpuSnapshot;
 
       if (activeMetrics.has(METRIC_MEMORY)) {
@@ -405,6 +447,7 @@ function createMetricSampler(options = {}) {
         ...latest,
         history: {
           [METRIC_CPU]: [...historyByMetric[METRIC_CPU]],
+          [METRIC_CPU_TEMP]: [...historyByMetric[METRIC_CPU_TEMP]],
           [METRIC_MEMORY]: [...historyByMetric[METRIC_MEMORY]],
           [METRIC_PING]: [...historyByMetric[METRIC_PING]],
           [METRIC_BATTERY]: [...historyByMetric[METRIC_BATTERY]],
@@ -432,6 +475,7 @@ function createMetricSampler(options = {}) {
 
 module.exports = {
   METRIC_CPU,
+  METRIC_CPU_TEMP,
   METRIC_MEMORY,
   METRIC_PING,
   METRIC_BATTERY,

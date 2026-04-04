@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 
 const {
   METRIC_CPU,
+  METRIC_CPU_TEMP,
   METRIC_MEMORY,
   METRIC_PING,
   METRIC_BATTERY,
@@ -144,6 +145,7 @@ function testSamplerHistoryAndMetrics() {
 
   assert.deepEqual(sampler.getMetrics(), [
     METRIC_CPU,
+    METRIC_CPU_TEMP,
     METRIC_MEMORY,
     METRIC_PING,
     METRIC_BATTERY,
@@ -245,12 +247,47 @@ function testSelectiveMetricSampling() {
   assert.equal(uptimeReads, 1);
 }
 
+function testHistoryDeduplication() {
+  const readCpuSnapshot = createIteratorReader([
+    { user: 0, system: 0, nice: 0, idle: 0 },
+    { user: 1, system: 1, nice: 0, idle: 2 },
+    { user: 2, system: 2, nice: 0, idle: 4 },
+    { user: 3, system: 3, nice: 0, idle: 6 },
+  ]);
+  const readMemoryUsage = createIteratorReader([{ total: 1000, free: 500 }]);
+  const readPingLatency = () => 15;
+  const readBatteryPercent = () => 80;
+  const readUptimeHours = () => 12;
+  const now = createIteratorReader([0, 1000, 2000]);
+
+  const sampler = createMetricSampler({
+    historySize: 10,
+    readCpuSnapshot,
+    readMemoryUsage,
+    readPingLatency,
+    readBatteryPercent,
+    readUptimeHours,
+    pingRefreshMs: 0,
+    batteryRefreshMs: 0,
+    now,
+  });
+
+  sampler.sample([METRIC_PING, METRIC_BATTERY, METRIC_UPTIME]);
+  sampler.sample([METRIC_PING, METRIC_BATTERY, METRIC_UPTIME]);
+  sampler.sample([METRIC_PING, METRIC_BATTERY, METRIC_UPTIME]);
+
+  assert.deepEqual(sampler.getHistory(METRIC_PING), [15]);
+  assert.deepEqual(sampler.getHistory(METRIC_BATTERY), [80]);
+  assert.deepEqual(sampler.getHistory(METRIC_UPTIME), [12]);
+}
+
 function run() {
   testUsageComputations();
   testParserHelpers();
   testSamplerHistoryAndMetrics();
   testPingRefreshConfiguration();
   testSelectiveMetricSampling();
+  testHistoryDeduplication();
   console.log("metrics tests passed");
 }
 

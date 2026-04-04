@@ -26,10 +26,22 @@
       "Name": "CPU",
       "UUID": "com.pshkrh.pulse-deck.cpu",
       "Icon": "imgs/actionCpu",
-      "Tooltip": "Live CPU percentage and graph",
+      "Tooltip": "Live CPU percentage and graph (tap to show temperature)",
       "States": [
         {
           "Image": "imgs/actionCpu"
+        }
+      ],
+      "SupportedInMultiActions": false
+    },
+    {
+      "Name": "CPU Temp",
+      "UUID": "com.pshkrh.pulse-deck.cpu_temp",
+      "Icon": "imgs/actionCpuTemp",
+      "Tooltip": "Live CPU temperature and graph (tap to show percentage)",
+      "States": [
+        {
+          "Image": "imgs/actionCpuTemp"
         }
       ],
       "SupportedInMultiActions": false
