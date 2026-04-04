@@ -16,7 +16,11 @@ const TEMP_METRICS = new Set(["cpu_temp"]);
 const KNOWN_METRICS = new Set([...PERCENT_METRICS, ...NON_PERCENT_METRICS, ...TEMP_METRICS]);
 
 function ensureDirectory(directoryPath) {
-  fs.mkdirSync(directoryPath, { recursive: true });
+  try {
+    fs.mkdirSync(directoryPath, { recursive: true });
+  } catch {
+    // directory may already exist
+  }
 }
 
 function hashInput(value) {
@@ -58,13 +62,18 @@ function normalizeValue(metric, value) {
 }
 
 function normalizeHistory(metric, history) {
-  if (!Array.isArray(history)) {
+  if (!Array.isArray(history) || history.length === 0) {
     return [];
   }
 
-  return history
-    .filter((value) => Number.isFinite(value))
-    .map((value) => normalizeValue(metric, value));
+  const normalized = [];
+  for (let i = 0; i < history.length; i++) {
+    const value = history[i];
+    if (Number.isFinite(value)) {
+      normalized.push(normalizeValue(metric, value));
+    }
+  }
+  return normalized;
 }
 
 function removeFileIfExists(filePath) {
@@ -72,24 +81,9 @@ function removeFileIfExists(filePath) {
     return;
   }
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    fs.unlinkSync(filePath);
   } catch {
     // no-op
-  }
-}
-
-function pruneCache(cacheMap, filePathByKey, maxEntries) {
-  while (cacheMap.size > maxEntries) {
-    const oldestKey = cacheMap.keys().next().value;
-    if (!oldestKey) {
-      break;
-    }
-
-    cacheMap.delete(oldestKey);
-    removeFileIfExists(filePathByKey.get(oldestKey));
-    filePathByKey.delete(oldestKey);
   }
 }
 
@@ -136,6 +130,7 @@ function createVitalRenderer(options = {}) {
 
   const imageCache = new Map();
   const filePathByKey = new Map();
+  const maxEntries = maxMemoryCacheEntries;
 
   return {
     transparentImage: TRANSPARENT_PNG_DATA_URL,
@@ -179,7 +174,15 @@ function createVitalRenderer(options = {}) {
 
       imageCache.set(cacheKey, dataUrl);
       filePathByKey.set(cacheKey, outputPath);
-      pruneCache(imageCache, filePathByKey, maxMemoryCacheEntries);
+      if (imageCache.size > maxEntries) {
+        const oldestKey = imageCache.keys().next().value;
+        if (oldestKey) {
+          imageCache.delete(oldestKey);
+          const oldestPath = filePathByKey.get(oldestKey);
+          removeFileIfExists(oldestPath);
+          filePathByKey.delete(oldestKey);
+        }
+      }
       return dataUrl;
     },
   };

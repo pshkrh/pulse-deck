@@ -18,29 +18,35 @@ const {
 } = require("./lib/system/metrics");
 const { createVitalRenderer } = require("./lib/render/icon-renderer");
 
-const ACTION_CPU = "com.pshkrh.pulse-deck.cpu";
+const ACTION_CPU      = "com.pshkrh.pulse-deck.cpu";
 const ACTION_CPU_TEMP = "com.pshkrh.pulse-deck.cpu_temp";
-const ACTION_MEMORY = "com.pshkrh.pulse-deck.memory";
-const ACTION_PING = "com.pshkrh.pulse-deck.ping";
-const ACTION_BATTERY = "com.pshkrh.pulse-deck.battery";
-const ACTION_UPTIME = "com.pshkrh.pulse-deck.uptime";
+const ACTION_MEMORY   = "com.pshkrh.pulse-deck.memory";
+const ACTION_PING     = "com.pshkrh.pulse-deck.ping";
+const ACTION_BATTERY  = "com.pshkrh.pulse-deck.battery";
+const ACTION_UPTIME   = "com.pshkrh.pulse-deck.uptime";
+
 const ACTION_TO_METRIC = new Map([
-  [ACTION_CPU, METRIC_CPU],
+  [ACTION_CPU,      METRIC_CPU],
   [ACTION_CPU_TEMP, METRIC_CPU_TEMP],
-  [ACTION_MEMORY, METRIC_MEMORY],
-  [ACTION_PING, METRIC_PING],
-  [ACTION_BATTERY, METRIC_BATTERY],
-  [ACTION_UPTIME, METRIC_UPTIME],
+  [ACTION_MEMORY,   METRIC_MEMORY],
+  [ACTION_PING,     METRIC_PING],
+  [ACTION_BATTERY,  METRIC_BATTERY],
+  [ACTION_UPTIME,   METRIC_UPTIME],
 ]);
 
-const POLL_INTERVAL_MS = 1000;
-const HISTORY_SIZE = 32;
+const CPU_TOGGLE_PAIR = new Map([
+  [METRIC_CPU,      METRIC_CPU_TEMP],
+  [METRIC_CPU_TEMP, METRIC_CPU],
+]);
+
+const POLL_INTERVAL_MS       = 1000;
+const HISTORY_SIZE           = 32;
 const PING_INTERVAL_SETTINGS_KEY = "pingIntervalSeconds";
 const DEFAULT_PING_INTERVAL_SECONDS = Math.round(DEFAULT_PING_REFRESH_MS / 1000);
-const MIN_PING_INTERVAL_SECONDS = Math.ceil(MIN_PING_REFRESH_MS / 1000);
-const MAX_PING_INTERVAL_SECONDS = Math.floor(MAX_PING_REFRESH_MS / 1000);
+const MIN_PING_INTERVAL_SECONDS     = Math.ceil(MIN_PING_REFRESH_MS / 1000);
+const MAX_PING_INTERVAL_SECONDS     = Math.floor(MAX_PING_REFRESH_MS / 1000);
 const RENDER_CACHE_DIRECTORY = path.join(__dirname, "..", "imgs", "runtime-cache");
-const RENDERER_SCRIPT_PATH = path.join(__dirname, "scripts", "render_vital_tile.py");
+const RENDERER_SCRIPT_PATH   = path.join(__dirname, "scripts", "render_vital_tile.py");
 
 const client = createStreamDeckClient({ pluginLabel: "Pulse Deck" });
 const sampler = createMetricSampler({
@@ -52,56 +58,52 @@ const renderer = createVitalRenderer({
   rendererScriptPath: RENDERER_SCRIPT_PATH,
 });
 
+// context → current metric
 const contexts = new Map();
+// metric → Set of contexts showing that metric
 const contextsByMetric = new Map([
-  [METRIC_CPU, new Set()],
+  [METRIC_CPU,      new Set()],
   [METRIC_CPU_TEMP, new Set()],
-  [METRIC_MEMORY, new Set()],
-  [METRIC_PING, new Set()],
-  [METRIC_BATTERY, new Set()],
-  [METRIC_UPTIME, new Set()],
+  [METRIC_MEMORY,   new Set()],
+  [METRIC_PING,     new Set()],
+  [METRIC_BATTERY,  new Set()],
+  [METRIC_UPTIME,   new Set()],
 ]);
+// context → last rendered data URL (skip re-send if unchanged)
 const lastImageByContext = new Map();
-const cpuToggleState = new Map();
+// context → whether the CPU button is currently showing temp (true) or usage (false)
+const cpuTempActive = new Map();
+
 let pollTimer = null;
 let refreshInProgress = false;
 let refreshPending = false;
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function normalizePingIntervalSeconds(value) {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    return DEFAULT_PING_INTERVAL_SECONDS;
-  }
-
-  const roundedSeconds = Math.round(numericValue);
-  return Math.max(MIN_PING_INTERVAL_SECONDS, Math.min(MAX_PING_INTERVAL_SECONDS, roundedSeconds));
-}
-
-function getPingIntervalFromSettings(settings) {
-  if (!settings || typeof settings !== "object") {
-    return DEFAULT_PING_INTERVAL_SECONDS;
-  }
-  return normalizePingIntervalSeconds(settings[PING_INTERVAL_SETTINGS_KEY]);
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_PING_INTERVAL_SECONDS;
+  return Math.max(MIN_PING_INTERVAL_SECONDS, Math.min(MAX_PING_INTERVAL_SECONDS, Math.round(n)));
 }
 
 function applyPingSettings(settings) {
-  const pingIntervalSeconds = getPingIntervalFromSettings(settings);
-  sampler.setPingRefreshMs(pingIntervalSeconds * 1000);
+  const seconds = normalizePingIntervalSeconds(settings?.[PING_INTERVAL_SETTINGS_KEY]);
+  sampler.setPingRefreshMs(seconds * 1000);
 }
 
-function resolveMetricFromAction(actionUuid) {
-  return ACTION_TO_METRIC.get(actionUuid) || null;
-}
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 
 function renderMetric(metric) {
   const metricContexts = contextsByMetric.get(metric);
-  if (!metricContexts || metricContexts.size === 0) {
-    return;
-  }
+  if (!metricContexts || metricContexts.size === 0) return;
 
   const value = sampler.getLatest(metric);
   const history = sampler.getHistory(metric);
-  let imageDataUrl = null;
+  let imageDataUrl;
   try {
     imageDataUrl = renderer.renderTile(metric, value, history);
   } catch (error) {
@@ -109,35 +111,26 @@ function renderMetric(metric) {
     return;
   }
 
-  if (!imageDataUrl) {
-    return;
-  }
+  if (!imageDataUrl) return;
 
   for (const context of metricContexts) {
-    if (lastImageByContext.get(context) === imageDataUrl) {
-      continue;
-    }
-
+    if (lastImageByContext.get(context) === imageDataUrl) continue;
     client.setImage(context, imageDataUrl);
     lastImageByContext.set(context, imageDataUrl);
   }
 }
 
 function getActiveMetrics() {
-  const activeMetrics = [];
-  for (const [metric, metricContexts] of contextsByMetric.entries()) {
-    if (metricContexts.size > 0) {
-      activeMetrics.push(metric);
-    }
+  const active = [];
+  for (const [metric, ctxs] of contextsByMetric) {
+    if (ctxs.size > 0) active.push(metric);
   }
-  return activeMetrics;
+  return active;
 }
 
 function runRefreshCycle() {
   const activeMetrics = getActiveMetrics();
-  if (activeMetrics.length === 0) {
-    return;
-  }
+  if (activeMetrics.length === 0) return;
 
   try {
     sampler.sample(activeMetrics);
@@ -170,39 +163,42 @@ function refreshAndRenderAll() {
   }
 }
 
-function startPollingIfNeeded() {
-  if (pollTimer || contexts.size === 0) {
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Polling lifecycle
+// ---------------------------------------------------------------------------
 
+function startPollingIfNeeded() {
+  if (pollTimer || contexts.size === 0) return;
   refreshAndRenderAll();
   pollTimer = setInterval(refreshAndRenderAll, POLL_INTERVAL_MS);
 }
 
 function stopPollingIfIdle() {
-  if (contexts.size > 0 || !pollTimer) {
-    return;
-  }
-
+  if (contexts.size > 0 || !pollTimer) return;
   clearInterval(pollTimer);
   pollTimer = null;
 }
 
+// ---------------------------------------------------------------------------
+// Event handlers
+// ---------------------------------------------------------------------------
+
 function handleWillAppear(event) {
-  const metric = resolveMetricFromAction(event.action);
-  if (!metric) {
-    return;
-  }
+  const metric = ACTION_TO_METRIC.get(event.action);
+  if (!metric) return;
 
   contexts.set(event.context, metric);
-  contextsByMetric.get(metric)?.add(event.context);
+  contextsByMetric.get(metric).add(event.context);
+
   if (metric === METRIC_PING) {
     applyPingSettings(event.payload?.settings);
-  } else if (metric === METRIC_CPU && !cpuToggleState.has(event.context)) {
-    cpuToggleState.set(event.context, false);
+  } else if (metric === METRIC_CPU) {
+    cpuTempActive.set(event.context, false);
   }
 
   client.setTitle(event.context, "");
+
+  // Prime the metric on first appearance so there's something to render immediately.
   if (sampler.getHistory(metric).length === 0) {
     try {
       sampler.sample([metric]);
@@ -210,80 +206,53 @@ function handleWillAppear(event) {
       client.logMessage(`Failed to prime ${metric} metric: ${error.message}`);
     }
   }
+
   startPollingIfNeeded();
   renderMetric(metric);
 }
 
 function handleWillDisappear(event) {
   const metric = contexts.get(event.context);
-  if (!metric) {
-    return;
-  }
+  if (!metric) return;
 
-  contextsByMetric.get(metric)?.delete(event.context);
+  contextsByMetric.get(metric).delete(event.context);
   contexts.delete(event.context);
   lastImageByContext.delete(event.context);
-  cpuToggleState.delete(event.context);
+  cpuTempActive.delete(event.context);
   stopPollingIfIdle();
 }
 
 function handleKeyDown(event) {
-  if (!contexts.has(event.context)) {
-    return;
-  }
-
   const currentMetric = contexts.get(event.context);
-  
-  if (currentMetric === METRIC_CPU) {
-    const isTemp = cpuToggleState.get(event.context) || false;
-    if (!isTemp) {
-      cpuToggleState.set(event.context, true);
-      contextsByMetric.get(METRIC_CPU)?.delete(event.context);
-      contextsByMetric.get(METRIC_CPU_TEMP)?.add(event.context);
-      contexts.set(event.context, METRIC_CPU_TEMP);
-      refreshAndRenderAll();
-      return;
-    }
-  } else if (currentMetric === METRIC_CPU_TEMP) {
-    const isTemp = cpuToggleState.get(event.context) || false;
-    if (isTemp) {
-      cpuToggleState.set(event.context, false);
-      contextsByMetric.get(METRIC_CPU_TEMP)?.delete(event.context);
-      contextsByMetric.get(METRIC_CPU)?.add(event.context);
-      contexts.set(event.context, METRIC_CPU);
-      refreshAndRenderAll();
-      return;
-    }
+  if (!currentMetric) return;
+
+  // CPU button toggles between usage and temperature on each press.
+  const toggleTarget = CPU_TOGGLE_PAIR.get(currentMetric);
+  if (toggleTarget !== undefined) {
+    contextsByMetric.get(currentMetric).delete(event.context);
+    contextsByMetric.get(toggleTarget).add(event.context);
+    contexts.set(event.context, toggleTarget);
+    cpuTempActive.set(event.context, toggleTarget === METRIC_CPU_TEMP);
+    refreshAndRenderAll();
+    return;
   }
 
   refreshAndRenderAll();
 }
 
 function handleDidReceiveSettings(event) {
-  if (event.action !== ACTION_PING) {
-    return;
-  }
-
+  if (event.action !== ACTION_PING) return;
   applyPingSettings(event.payload?.settings);
   refreshAndRenderAll();
 }
 
 function onStreamDeckEvent(event) {
   switch (event.event) {
-    case "willAppear":
-      handleWillAppear(event);
-      break;
-    case "willDisappear":
-      handleWillDisappear(event);
-      break;
-    case "keyDown":
-      handleKeyDown(event);
-      break;
-    case "didReceiveSettings":
-      handleDidReceiveSettings(event);
-      break;
-    default:
-      break;
+    case "willAppear":        handleWillAppear(event);        break;
+    case "willDisappear":     handleWillDisappear(event);     break;
+    case "keyDown":           handleKeyDown(event);           break;
+    case "didReceiveSettings":handleDidReceiveSettings(event);break;
+    default: break;
   }
 }
 
@@ -292,7 +261,6 @@ client.onEvent(onStreamDeckEvent);
 try {
   client.connect();
 } catch (error) {
-  // Last resort for startup failures outside of host logging.
   // eslint-disable-next-line no-console
   console.error(`[Pulse Deck] ${error.message}`);
   process.exit(1);
