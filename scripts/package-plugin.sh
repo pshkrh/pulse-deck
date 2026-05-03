@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_DIR="$ROOT_DIR/com.pshkrh.pulse-deck.sdPlugin"
 DIST_DIR="$ROOT_DIR/dist"
+ARCH="$(uname -m)"
 
 if [[ ! -d "$PLUGIN_DIR" ]]; then
   echo "Plugin directory not found: $PLUGIN_DIR" >&2
@@ -12,10 +13,17 @@ fi
 
 VERSION="$(node -p "require('$PLUGIN_DIR/manifest.json').Version")"
 UUID="$(node -p "require('$PLUGIN_DIR/manifest.json').UUID")"
-ARTIFACT="$DIST_DIR/$UUID-$VERSION.streamDeckPlugin"
+ARTIFACT="$DIST_DIR/$UUID-$VERSION-macos-$ARCH.streamDeckPlugin"
 
 npm --prefix "$PLUGIN_DIR" install
 mkdir -p "$DIST_DIR"
+
+if [[ ! -x "$PLUGIN_DIR/bin/scripts/cpu_temp_bin" ]]; then
+  echo "Missing bundled CPU temp binary: $PLUGIN_DIR/bin/scripts/cpu_temp_bin" >&2
+  exit 1
+fi
+
+node -e "require(require('node:path').join(process.argv[1], 'bin/lib/render/canvas-renderer.js'))" "$PLUGIN_DIR"
 
 if command -v ditto >/dev/null 2>&1; then
   ditto -c -k --sequesterRsrc --keepParent "$PLUGIN_DIR" "$ARTIFACT"

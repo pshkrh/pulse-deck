@@ -2,6 +2,7 @@
   "name": "com.pshkrh.pulse-deck.sdplugin",
   "private": true,
   "dependencies": {
+    "canvas": "^3.2.3",
     "ws": "^8.19.0"
   }
 }
