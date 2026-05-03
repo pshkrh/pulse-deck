@@ -1,6 +1,6 @@
 {
   "Name": "Pulse Deck: System Info",
-  "Version": "1.1.0",
+  "Version": "1.1.1",
   "Author": "pshkrh",
   "Description": "Live CPU, memory, ping latency, battery, and uptime telemetry with polished animated key graphs for macOS.",
   "UUID": "com.pshkrh.pulse-deck",
