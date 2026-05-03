@@ -22,6 +22,7 @@ const MAX_PING_REFRESH_MS        = 300_000;
 const COMMAND_OUTPUT_MAX_BUFFER  = 1024 * 1024;
 const VM_STAT_TIMEOUT_MS         = 700;
 const PMSET_TIMEOUT_MS           = 700;
+const CPU_TEMP_BINARY_PATH       = path.join(__dirname, "..", "..", "scripts", "cpu_temp_bin");
 const CPU_TEMP_SCRIPT_PATH       = path.join(__dirname, "..", "..", "scripts", "cpu_temp.swift");
 const CPU_TEMP_TIMEOUT_MS        = 1000;
 const PING_HOST_TIMEOUT_MS       = 900;
@@ -94,6 +95,18 @@ function computeCpuUsage(previous, current) {
 // ---------------------------------------------------------------------------
 
 function readCpuTempFromOs() {
+  try {
+    const output = process.arch === "arm64"
+      ? execFileUtf8(CPU_TEMP_BINARY_PATH, [], CPU_TEMP_TIMEOUT_MS)
+      : execFileUtf8("swift", [CPU_TEMP_SCRIPT_PATH], CPU_TEMP_TIMEOUT_MS);
+    const value = Number(output.trim());
+    return Number.isFinite(value) && value > 0 ? clampNonNegative(value) : null;
+  } catch {
+    if (process.arch !== "arm64") {
+      return null;
+    }
+  }
+
   try {
     const output = execFileUtf8("swift", [CPU_TEMP_SCRIPT_PATH], CPU_TEMP_TIMEOUT_MS);
     const value = Number(output.trim());

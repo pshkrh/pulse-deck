@@ -23,13 +23,16 @@ Pulse Deck is a lightweight Stream Deck plugin for live macOS system info teleme
 ## Requirements
 - macOS 11+
 - Stream Deck 6.5+
-- Node.js 20+
-- Python 3 + Pillow
 
-Install Pillow if needed:
-```bash
-python3 -m pip install --user Pillow
-```
+## Installation
+For other users, install the packaged `.streamDeckPlugin` release artifact through Stream Deck. That package includes the plugin's Node dependencies, so end users do not need to install Node.
+
+Current packaging target:
+- Apple Silicon macOS (`arm64`)
+
+Notes:
+- CPU temperature uses a bundled Apple Silicon executable at runtime.
+- Installing from the repository source is a developer workflow and still requires local tooling.
 
 ## Setup
 ```bash
@@ -44,14 +47,15 @@ Restart Stream Deck after local install.
 ```bash
 npm run package:plugin
 ```
-Output: `dist/com.pshkrh.pulse-deck-<version>.streamDeckPlugin`
+Output: `dist/com.pshkrh.pulse-deck-<version>-macos-<arch>.streamDeckPlugin`
 
 ## Repository Layout
 - `com.pshkrh.pulse-deck.sdPlugin/manifest.json`: Stream Deck metadata
 - `com.pshkrh.pulse-deck.sdPlugin/bin/plugin.js`: event loop and action wiring
 - `com.pshkrh.pulse-deck.sdPlugin/bin/lib/system/metrics.js`: metric collection
-- `com.pshkrh.pulse-deck.sdPlugin/bin/lib/render/icon-renderer.js`: tile rendering bridge
-- `com.pshkrh.pulse-deck.sdPlugin/bin/scripts/render_vital_tile.py`: image renderer
+- `com.pshkrh.pulse-deck.sdPlugin/bin/lib/render/icon-renderer.js`: tile rendering and cache
+- `com.pshkrh.pulse-deck.sdPlugin/bin/lib/render/canvas-renderer.js`: in-process tile renderer
+- `com.pshkrh.pulse-deck.sdPlugin/bin/scripts/cpu_temp_bin`: bundled Apple Silicon CPU temperature helper
 - `scripts/generate_icons.py`: static icon generation
 - `scripts/install-pulse-deck.sh`: local installer
 - `scripts/package-plugin.sh`: `.streamDeckPlugin` packager
