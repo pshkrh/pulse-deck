@@ -13,7 +13,7 @@ const HEADER_TEXT_Y = 4;
 const GRAPH_LEFT   = 12;
 const GRAPH_RIGHT  = KEY_SIZE - 12;
 const GRAPH_TOP    = 96;
-const GRAPH_BOTTOM = KEY_SIZE - 30;
+const GRAPH_BOTTOM = KEY_SIZE - 24;
 
 const THEMES = {
   cpu: {
@@ -107,13 +107,31 @@ function clampValue(value, mode) {
   return value;
 }
 
-function resolveScaleMax(mode, values, current) {
+function resolveScale(mode, values, current) {
   const allValues = values.concat([current]);
-  if (mode === "percent") return 100;
-  if (mode === "temp") return Math.max(60, ...allValues);
-  if (mode === "latency") return Math.max(20, ...allValues);
-  if (mode === "uptime") return Math.max(24, ...allValues);
-  return Math.max(1, current);
+  if (mode === "percent") {
+    const minValue = Math.min(...allValues);
+    const maxValue = Math.max(...allValues);
+    const paddedMin = Math.max(0, minValue - 4);
+    const paddedMax = Math.min(100, maxValue + 4);
+    const span = paddedMax - paddedMin;
+
+    if (span >= 24) {
+      return { min: paddedMin, max: paddedMax };
+    }
+
+    const midpoint = (paddedMin + paddedMax) / 2;
+    const halfSpan = 12;
+    return {
+      min: Math.max(0, midpoint - halfSpan),
+      max: Math.min(100, midpoint + halfSpan),
+    };
+  }
+
+  if (mode === "temp") return { min: 0, max: Math.max(60, ...allValues) };
+  if (mode === "latency") return { min: 0, max: Math.max(20, ...allValues) };
+  if (mode === "uptime") return { min: 0, max: Math.max(24, ...allValues) };
+  return { min: 0, max: Math.max(1, current) };
 }
 
 function formatLatency(value) {
@@ -200,7 +218,7 @@ function drawCenteredText(ctx, text, x, y, font, fillStyle) {
   ctx.fillText(text, x - (width / 2), y);
 }
 
-function drawHistory(ctx, history, accent, scaleMax) {
+function drawHistory(ctx, history, accent, scale) {
   if (!history || history.length === 0) return;
 
   // Handle single value - duplicate both ends
@@ -211,13 +229,16 @@ function drawHistory(ctx, history, accent, scaleMax) {
   const span = Math.max(1, history.length - 1);
   const width = GRAPH_RIGHT - GRAPH_LEFT;
   const height = GRAPH_BOTTOM - GRAPH_TOP;
-  const den = Math.max(scaleMax, 0.001);
+  const scaleMin = Number.isFinite(scale?.min) ? scale.min : 0;
+  const scaleMax = Number.isFinite(scale?.max) ? scale.max : 1;
+  const den = Math.max(scaleMax - scaleMin, 0.001);
 
   // Build points
   const points = new Array(history.length);
   for (let i = 0; i < history.length; i++) {
     const x = GRAPH_LEFT + (width * i / span);
-    const y = GRAPH_BOTTOM - (height * (history[i] / den));
+    const normalized = Math.max(0, Math.min(1, (history[i] - scaleMin) / den));
+    const y = GRAPH_BOTTOM - (height * normalized);
     points[i] = [x, y];
   }
 
@@ -364,7 +385,7 @@ function render(metric, value, history) {
   const mode = theme.mode;
   const safeValue = clampValue(value, mode);
   const values = history && history.length > 0 ? history.slice(-30) : [safeValue];
-  const scaleMax = resolveScaleMax(mode, values, safeValue);
+  const scale = resolveScale(mode, values, safeValue);
 
   const canvas = createCanvas(KEY_SIZE, KEY_SIZE);
   const ctx = canvas.getContext("2d");
@@ -378,7 +399,7 @@ function render(metric, value, history) {
   } else {
     drawGrid(ctx);
     drawLabels(ctx, theme.label, safeValue, theme.accent, mode);
-    drawHistory(ctx, values, theme.accent, scaleMax);
+    drawHistory(ctx, values, theme.accent, scale);
   }
 
   return canvas.toBuffer("image/png");
