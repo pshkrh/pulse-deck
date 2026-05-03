@@ -5,10 +5,15 @@ const { existsSync } = require("node:fs");
 
 const KEY_SIZE = 144;
 const PADDING  = 12;
+const HEADER_LEFT = 0;
+const HEADER_TOP = 0;
+const HEADER_WIDTH = KEY_SIZE;
+const HEADER_HEIGHT = 26;
+const HEADER_TEXT_Y = 4;
 const GRAPH_LEFT   = 12;
 const GRAPH_RIGHT  = KEY_SIZE - 12;
-const GRAPH_TOP    = 64;
-const GRAPH_BOTTOM = KEY_SIZE - 22;
+const GRAPH_TOP    = 96;
+const GRAPH_BOTTOM = KEY_SIZE - 30;
 
 const THEMES = {
   cpu: {
@@ -36,13 +41,13 @@ const THEMES = {
     mode: "latency",
   },
   battery: {
-    label: "BAT",
+    label: "BATTERY",
     accent: [96, 224, 122],
     accent_soft: [145, 245, 169],
     mode: "percent",
   },
   uptime: {
-    label: "UP",
+    label: "UPTIME",
     accent: [173, 190, 210],
     accent_soft: [132, 156, 184],
     mode: "uptime",
@@ -125,15 +130,25 @@ function formatUptime(hours) {
 // Drawing functions
 // ---------------------------------------------------------------------------
 
-function drawBackground(ctx, accent, soft) {
-  // Horizontal gradient lines
-  for (let y = 0; y < KEY_SIZE; y++) {
-    const t = y / (KEY_SIZE - 1);
-    const r = Math.round(18 + (soft[0] * 0.16) + t * 22);
-    const g = Math.round(20 + (soft[1] * 0.12) + t * 18);
-    const b = Math.round(28 + (soft[2] * 0.1) + t * 20);
+function drawBackground(ctx, accent, soft, options = {}) {
+  const showStripes = options.showStripes !== false;
+
+  if (showStripes) {
+    // Horizontal gradient lines
+    for (let y = 0; y < KEY_SIZE; y++) {
+      const t = y / (KEY_SIZE - 1);
+      const r = Math.round(18 + (soft[0] * 0.16) + t * 22);
+      const g = Math.round(20 + (soft[1] * 0.12) + t * 18);
+      const b = Math.round(28 + (soft[2] * 0.1) + t * 20);
+      ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+      ctx.fillRect(0, y, KEY_SIZE, 1);
+    }
+  } else {
+    const r = Math.round(26 + (soft[0] * 0.08));
+    const g = Math.round(28 + (soft[1] * 0.07));
+    const b = Math.round(36 + (soft[2] * 0.06));
     ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
-    ctx.fillRect(0, y, KEY_SIZE, 1);
+    ctx.fillRect(0, 0, KEY_SIZE, KEY_SIZE);
   }
 
   // Rounded border outline
@@ -155,17 +170,11 @@ function drawBackground(ctx, accent, soft) {
   ctx.closePath();
   ctx.stroke();
 
-  // Top-right glow ellipse
+  // Header rectangle
   ctx.save();
-  ctx.globalAlpha = 58 / 255;
-  ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
-  const ellipseX = KEY_SIZE - 70;
-  const ellipseY = -22;
-  const ellipseRx = (KEY_SIZE + 34) - (KEY_SIZE - 70);
-  const ellipseRy = 80 - (-22);
-  ctx.beginPath();
-  ctx.ellipse(ellipseX, ellipseY, ellipseRx, ellipseRy, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.globalAlpha = 66 / 255;
+  ctx.fillStyle = "rgb(" + soft[0] + "," + soft[1] + "," + soft[2] + ")";
+  ctx.fillRect(HEADER_LEFT, HEADER_TOP, HEADER_WIDTH, HEADER_HEIGHT);
   ctx.restore();
 }
 
@@ -181,6 +190,14 @@ function drawGrid(ctx) {
     ctx.lineTo(GRAPH_RIGHT, y);
     ctx.stroke();
   }
+}
+
+function drawCenteredText(ctx, text, x, y, font, fillStyle) {
+  ctx.font = font;
+  ctx.fillStyle = fillStyle;
+  ctx.textBaseline = "top";
+  const width = ctx.measureText(text).width;
+  ctx.fillText(text, x - (width / 2), y);
 }
 
 function drawHistory(ctx, history, accent, scaleMax) {
@@ -203,20 +220,6 @@ function drawHistory(ctx, history, accent, scaleMax) {
     const y = GRAPH_BOTTOM - (height * (history[i] / den));
     points[i] = [x, y];
   }
-
-  // Area fill (polygon)
-  ctx.save();
-  ctx.globalAlpha = 40 / 255;
-  ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
-  ctx.beginPath();
-  ctx.moveTo(GRAPH_LEFT, GRAPH_BOTTOM);
-  for (const [x, y] of points) {
-    ctx.lineTo(x, y);
-  }
-  ctx.lineTo(GRAPH_RIGHT, GRAPH_BOTTOM);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
 
   // Line connections
   ctx.strokeStyle = "rgba(" + accent[0] + "," + accent[1] + "," + accent[2] + ",0.906)";
@@ -244,25 +247,40 @@ function drawHistory(ctx, history, accent, scaleMax) {
 
 function drawValueWithUnit(ctx, value, unitText, accent) {
   const valueText = String(Math.round(value));
+  const valueY = 40;
+  const gap = 4;
 
   ctx.textBaseline = "top";
 
-  // Value text (size 50 bold)
-  ctx.font = "50px " + FONT_FAMILY.bold;
+  // Value text (size 46 bold)
+  ctx.font = "46px " + FONT_FAMILY.bold;
   const valueBBox = ctx.measureText(valueText);
 
   ctx.fillStyle = "rgba(255,255,255,1)";
-  ctx.fillText(valueText, PADDING, 20);
+  ctx.fillText(valueText, PADDING, valueY);
 
   // Unit text (size 22 bold, offset right of value)
   ctx.font = "22px " + FONT_FAMILY.bold;
-  const unitWidth = ctx.measureText(unitText).width;
-
-  const unitX = PADDING + valueBBox.width + 2;
-  const unitY = 46 - unitWidth; // approximate baseline shift to appear ~below
+  const unitX = PADDING + valueBBox.width + gap;
+  const unitY = valueY + 8;
 
   ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
   ctx.fillText(unitText, unitX, unitY);
+}
+
+function drawLatencyValue(ctx, value, accent) {
+  const formatted = formatLatency(value);
+  const valueY = 40;
+
+  ctx.textBaseline = "top";
+  ctx.font = "40px " + FONT_FAMILY.bold;
+  const valueWidth = ctx.measureText(formatted[0]).width;
+  ctx.fillStyle = "rgba(255,255,255,1)";
+  ctx.fillText(formatted[0], PADDING, valueY);
+
+  ctx.font = "22px " + FONT_FAMILY.normal;
+  ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
+  ctx.fillText(formatted[1], PADDING + valueWidth + 6, valueY + 10);
 }
 
 function drawLabels(ctx, label, value, accent, mode) {
@@ -270,7 +288,7 @@ function drawLabels(ctx, label, value, accent, mode) {
   ctx.font = "18px " + FONT_FAMILY.normal;
   ctx.fillStyle = "rgba(232,239,255,0.902)";
   ctx.textBaseline = "top";
-  ctx.fillText(label, PADDING, 10);
+  ctx.fillText(label, PADDING, HEADER_TEXT_Y);
 
   if (mode === "percent") {
     drawValueWithUnit(ctx, value, "%", accent);
@@ -282,19 +300,55 @@ function drawLabels(ctx, label, value, accent, mode) {
     return;
   }
 
-  // latency or uptime
-  const formatted = mode === "latency" ? formatLatency(value) : formatUptime(value);
+  drawLatencyValue(ctx, value, accent);
+}
 
-  // Value text (size 34)
+function drawCenteredBatteryLabels(ctx, label, value, accent) {
+  const centerX = KEY_SIZE / 2;
+  const valueText = String(Math.round(value));
+  const valueY = 50;
+  const gap = 4;
+
+  ctx.font = "18px " + FONT_FAMILY.normal;
+  ctx.fillStyle = "rgba(232,239,255,0.902)";
+  ctx.textBaseline = "top";
+  ctx.fillText(label, PADDING, HEADER_TEXT_Y);
+
+  ctx.font = "46px " + FONT_FAMILY.bold;
+  const valueWidth = ctx.measureText(valueText).width;
+  ctx.font = "22px " + FONT_FAMILY.bold;
+  const unitWidth = ctx.measureText("%").width;
+
+  const totalWidth = valueWidth + gap + unitWidth;
+  const startX = centerX - (totalWidth / 2);
+
+  ctx.font = "46px " + FONT_FAMILY.bold;
+  ctx.fillStyle = "rgba(255,255,255,1)";
+  ctx.fillText(valueText, startX, valueY);
+
+  ctx.font = "22px " + FONT_FAMILY.bold;
+  ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
+  ctx.fillText("%", startX + valueWidth + gap, valueY + 8);
+}
+
+function drawUptimeLabels(ctx, label, value, accent) {
+  const formatted = formatUptime(value);
+
+  ctx.font = "18px " + FONT_FAMILY.normal;
+  ctx.fillStyle = "rgba(232,239,255,0.902)";
+  ctx.textBaseline = "top";
+  ctx.fillText(label, PADDING, HEADER_TEXT_Y);
+
   ctx.font = "34px " + FONT_FAMILY.bold;
   ctx.fillStyle = "rgba(255,255,255,1)";
-  ctx.textBaseline = "top";
-  ctx.fillText(formatted[0], PADDING, 24);
+  const primaryX = PADDING;
+  const primaryY = 56;
+  ctx.fillText(formatted[0], primaryX, primaryY);
 
-  // Unit text (size 15)
-  ctx.font = "15px " + FONT_FAMILY.normal;
+  const primaryWidth = ctx.measureText(formatted[0]).width;
+  ctx.font = "24px " + FONT_FAMILY.normal;
   ctx.fillStyle = "rgb(" + accent[0] + "," + accent[1] + "," + accent[2] + ")";
-  ctx.fillText(formatted[1], PADDING, 54);
+  ctx.fillText(formatted[1], primaryX + primaryWidth + 8, primaryY + 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -315,10 +369,17 @@ function render(metric, value, history) {
   const canvas = createCanvas(KEY_SIZE, KEY_SIZE);
   const ctx = canvas.getContext("2d");
 
-  drawBackground(ctx, theme.accent, theme.accent_soft);
-  drawGrid(ctx);
-  drawLabels(ctx, theme.label, safeValue, theme.accent, mode);
-  drawHistory(ctx, values, theme.accent, scaleMax);
+  const isTextOnlyTile = metric === "battery" || mode === "uptime";
+  drawBackground(ctx, theme.accent, theme.accent_soft, { showStripes: !isTextOnlyTile });
+  if (metric === "battery") {
+    drawCenteredBatteryLabels(ctx, theme.label, safeValue, theme.accent);
+  } else if (mode === "uptime") {
+    drawUptimeLabels(ctx, theme.label, safeValue, theme.accent);
+  } else {
+    drawGrid(ctx);
+    drawLabels(ctx, theme.label, safeValue, theme.accent, mode);
+    drawHistory(ctx, values, theme.accent, scaleMax);
+  }
 
   return canvas.toBuffer("image/png");
 }
