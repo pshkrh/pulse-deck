@@ -110,22 +110,7 @@ function clampValue(value, mode) {
 function resolveScale(mode, values, current) {
   const allValues = values.concat([current]);
   if (mode === "percent") {
-    const minValue = Math.min(...allValues);
-    const maxValue = Math.max(...allValues);
-    const paddedMin = Math.max(0, minValue - 4);
-    const paddedMax = Math.min(100, maxValue + 4);
-    const span = paddedMax - paddedMin;
-
-    if (span >= 24) {
-      return { min: paddedMin, max: paddedMax };
-    }
-
-    const midpoint = (paddedMin + paddedMax) / 2;
-    const halfSpan = 12;
-    return {
-      min: Math.max(0, midpoint - halfSpan),
-      max: Math.min(100, midpoint + halfSpan),
-    };
+    return { min: 0, max: 100 };
   }
 
   if (mode === "temp") return { min: 0, max: Math.max(60, ...allValues) };
