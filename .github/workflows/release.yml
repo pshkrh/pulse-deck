@@ -10,31 +10,10 @@ permissions:
   contents: write
 
 jobs:
-  package:
+  publish-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: com.pshkrh.pulse-deck.sdPlugin/package-lock.json
-
-      - name: Install Plugin Dependencies
-        run: npm run prepare
-
-      - name: Run Tests
-        run: npm test
-
-      - name: Build Plugin Package
-        run: npm run package:plugin
-
-      - name: Publish Release Asset
+      - name: Ensure GitHub release exists
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.streamDeckPlugin
-          fail_on_unmatched_files: true
           generate_release_notes: true
